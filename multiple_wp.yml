@@ -1,0 +1,182 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Parameters:
+  DBInstanceID:
+    Default: wordpress
+    Description: Database instance
+    Type: String
+    MinLength: '1'
+    MaxLength: '63'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: >-
+      Must begin with a letter and must not end with a hyphen or contain two
+      consecutive hyphens.
+  DBName:
+    Default: wordpress
+    Description: Database name
+    Type: String
+    MinLength: '1'
+    MaxLength: '64'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: Must begin with a letter and contain only alphanumeric characters.
+  DBInstanceClass:
+    Default: db.t2.micro
+    Description: DB instance class
+    Type: String
+    ConstraintDescription: Must select a valid DB instance type.
+  DBAllocatedStorage:
+    Default: '20'
+    Description: The size of the database (GiB)
+    Type: Number
+    MinValue: '5'
+    MaxValue: '1024'
+    ConstraintDescription: must be between 20 and 65536 GiB.
+  DBUsername:
+    Default: 'admin'
+ #   NoEcho: 'true'
+    Description: Username for MySQL database access
+    Type: String
+    MinLength: '1'
+    MaxLength: '16'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: must begin with a letter and contain only alphanumeric characters.
+  DBPassword:
+    Default: 'testpass123'
+ #   NoEcho: 'true'
+    Description: Password MySQL database access
+    Type: String
+    MinLength: '8'
+    MaxLength: '41'
+    AllowedPattern: '[a-zA-Z0-9]*'
+    ConstraintDescription: must contain only alphanumeric characters.
+
+  wpuser:
+    Default: wordpressuser
+    Description: User Name
+    Type: String
+    MinLength: '1'
+    MaxLength: '16'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: must begin with a letter and contain only alphanumeric characters.   
+  wppass:
+    Default: wordpressPass
+    Description: DB User password.
+    Type: String
+    MinLength: '8'
+    MaxLength: '41'
+    AllowedPattern: '[a-zA-Z0-9]*'
+    ConstraintDescription: must contain only alphanumeric characters.
+
+  KeyPair:
+    Type: String
+    Default: mykp
+    Description: Enter name of pre-generated KeyPair
+
+Resources:
+  MyDB:
+    Type: 'AWS::RDS::DBInstance'
+    Properties:
+      DBInstanceIdentifier: !Ref DBInstanceID
+      DBName: !Ref DBName
+      DBInstanceClass: !Ref DBInstanceClass
+      AllocatedStorage: !Ref DBAllocatedStorage
+      Engine: MySQL
+      EngineVersion: 5.7.26
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref DBPassword
+      BackupRetentionPeriod: 0
+      AvailabilityZone: us-east-2a
+      PubliclyAccessible: No
+      StorageType: gp2 
+
+
+  PublicInstance1:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.nano
+      ImageId: ami-00bf61217e296b409
+      KeyName: test-1-Nov-2018
+      SecurityGroupIds: 
+      - sg-063f94e3adcb4cce5
+      Tags:
+        - Key: Name
+          Value: wordpresstest1
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash -ex
+            yum update -y
+            yum install -y mysql httpd dos2unix
+           
+            export MYSQL_HOST=${MyDB.Endpoint.Address}
+            mysql --user=${DBUsername} --password=${DBPassword} ${DBName} -e "CREATE USER '${wpuser}' IDENTIFIED BY '${wppass}';"
+            mysql --user=${DBUsername} --password=${DBPassword} ${DBName} -e "GRANT ALL PRIVILEGES ON ${DBName}.* TO '${wpuser}';"
+            mysql --user=${DBUsername} --password=${DBPassword} ${DBName} -e "FLUSH PRIVILEGES;"
+            
+            cd /home/ec2-user/
+            wget https://wordpress.org/latest.tar.gz
+            tar -xzf latest.tar.gz
+            cd /home/ec2-user/wordpress
+            cp wp-config-sample.php wp-config.php
+            cat wp-config.php | sed s/database_name_here/${DBName}/g > wp-config.php.temp && cp wp-config.php.temp wp-config.php    
+            cat wp-config.php | sed s/username_here/${wpuser}/g > wp-config.php.temp && cp wp-config.php.temp wp-config.php   
+            cat wp-config.php | sed s/password_here/${wppass}/g > wp-config.php.temp && cp wp-config.php.temp wp-config.php   
+            cat wp-config.php | sed s/localhost/${MyDB.Endpoint.Address}/g > wp-config.php.temp && cp wp-config.php.temp wp-config.php
+            
+            awk '{print >out}; /NONCE_SALT/{out="wp-config2.php"}' out=wp-config1.php wp-config.php
+            export SALTS=$(curl -s https://api.wordpress.org/secret-key/1.1/salt/)
+            sed  '/AUTH_KEY\|SECURE_AUTH_KEY\|LOGGED_IN_KEY\|NONCE_KEY\|AUTH_SALT\|LOGGED_IN_SALT\|NONCE_SALT/d' wp-config1.php > wp-config.php.temp
+            echo "$SALTS" >> wp-config.php.temp
+            cp wp-config.php.temp wp-config.php
+            cat wp-config2.php >> wp-config.php
+            dos2unix wp-config.php wp-config.php && rm wp-config.php.temp wp-config1.php wp-config2.php
+            
+            amazon-linux-extras install -y lamp-mariadb10.2-php7.2 php7.2
+            cd /home/ec2-user
+            cp -r wordpress/* /var/www/html/
+            service httpd start
+            chkconfig httpd on
+
+
+  
+  PublicInstance2:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.nano
+      ImageId: ami-00bf61217e296b409
+      KeyName: test-1-Nov-2018
+      SecurityGroupIds: 
+      - sg-063f94e3adcb4cce5
+      Tags:
+        - Key: Name
+          Value: wordpresstest2
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash -ex
+            yum update -y
+            yum install -y mysql httpd dos2unix
+            
+            cd /home/ec2-user/
+            wget https://wordpress.org/latest.tar.gz
+            tar -xzf latest.tar.gz
+            cd /home/ec2-user/wordpress
+            cp wp-config-sample.php wp-config.php
+            cat wp-config.php | sed s/database_name_here/${DBName}/g > wp-config.php.temp && cp wp-config.php.temp wp-config.php    
+            cat wp-config.php | sed s/username_here/${wpuser}/g > wp-config.php.temp && cp wp-config.php.temp wp-config.php   
+            cat wp-config.php | sed s/password_here/${wppass}/g > wp-config.php.temp && cp wp-config.php.temp wp-config.php   
+            cat wp-config.php | sed s/localhost/${MyDB.Endpoint.Address}/g > wp-config.php.temp && cp wp-config.php.temp wp-config.php
+            
+            awk '{print >out}; /NONCE_SALT/{out="wp-config2.php"}' out=wp-config1.php wp-config.php
+            export SALTS=$(curl -s https://api.wordpress.org/secret-key/1.1/salt/)
+            sed  '/AUTH_KEY\|SECURE_AUTH_KEY\|LOGGED_IN_KEY\|NONCE_KEY\|AUTH_SALT\|LOGGED_IN_SALT\|NONCE_SALT/d' wp-config1.php > wp-config.php.temp
+            echo "$SALTS" >> wp-config.php.temp
+            cp wp-config.php.temp wp-config.php
+            cat wp-config2.php >> wp-config.php
+            dos2unix wp-config.php wp-config.php && rm wp-config.php.temp wp-config1.php wp-config2.php
+            
+            amazon-linux-extras install -y lamp-mariadb10.2-php7.2 php7.2
+            cd /home/ec2-user
+            cp -r wordpress/* /var/www/html/
+            service httpd start
+            chkconfig httpd on          

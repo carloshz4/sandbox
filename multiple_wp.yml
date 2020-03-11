@@ -73,6 +73,40 @@ Parameters:
     Description: Enter name of pre-generated KeyPair
 
 Resources:
+
+  WPSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties: 
+      GroupDescription: Security Group for the EC2 WordPress instances to allow http and ssh traffic from internet
+      GroupName: WPSG     
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name 
+          Value: WPSG
+
+  MYSQLSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security Group for mysql DB
+      GroupName: MYSQLSG     
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 0.0.0.0/0
+          # Better to limit this to only traffic coming from the wp instances
+      Tags:
+        - Key: Name 
+          Value: MYSQLSG
+
   MyDB:
     Type: 'AWS::RDS::DBInstance'
     Properties:
@@ -85,19 +119,21 @@ Resources:
       MasterUsername: !Ref DBUsername
       MasterUserPassword: !Ref DBPassword
       BackupRetentionPeriod: 0
-      AvailabilityZone: us-east-2a
+      AvailabilityZone: us-east-1a
       PubliclyAccessible: No
       StorageType: gp2 
+      VPCSecurityGroups: 
+        - Fn::GetAtt: [ MYSQLSG, GroupId ]
 
 
   PublicInstance1:
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: t2.nano
-      ImageId: ami-00bf61217e296b409
-      KeyName: test-1-Nov-2018
+      ImageId: ami-0a887e401f7654935
+      KeyName: !Ref KeyPair
       SecurityGroupIds: 
-      - sg-063f94e3adcb4cce5
+      - !Ref WPSG
       Tags:
         - Key: Name
           Value: wordpresstest1
@@ -143,10 +179,10 @@ Resources:
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: t2.nano
-      ImageId: ami-00bf61217e296b409
-      KeyName: test-1-Nov-2018
+      ImageId: ami-0a887e401f7654935
+      KeyName: !Ref KeyPair
       SecurityGroupIds: 
-      - sg-063f94e3adcb4cce5
+      - !Ref WPSG
       Tags:
         - Key: Name
           Value: wordpresstest2
